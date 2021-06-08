@@ -1,0 +1,51 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{common}
+
+\RequirePackage{indentfirst}
+
+% link
+\RequirePackage{hyperref}
+
+% 中文化
+\RequirePackage{xeCJK}
+\setCJKmainfont[Extension=.otf, AutoFakeBold=.1, ItalicFont=cwTeXKai.ttf]{NotoSansMonoCJKtc-Regular}
+
+\RequirePackage{titlesec}
+\RequirePackage{titletoc}
+\RequirePackage{CJKnumb}
+\titleformat{\chapter}{\LARGE\bfseries}{第\,\CJKnumber{\thechapter}\,章}{1em} {}
+
+\RequirePackage{xcolor}
+
+% 程式碼
+\RequirePackage{listings}
+\lstset{
+    backgroundcolor=\color[rgb]{0.9,0.9,0.9},
+    basicstyle=\linespread{1}\ttfamily\small,
+    breaklines=true,
+    escapeinside={`}{`}
+}
+
+% 邊界
+\RequirePackage[a4paper, right=1.75cm, left=1.75cm, top=1.75cm, bottom=1.75cm]{geometry}
+
+\RequirePackage{setspace}
+\setstretch{1.5}  % 1.5 行高
+
+\RequirePackage{zhnumber}
+
+\let\realitemize\itemize
+\let\endrealitemize\enditemize
+\renewenvironment{itemize}{%
+\footnotesize\realitemize\setlength{\parskip}{0pt}\setlength{\itemsep}{0pt plus 1pt}}
+{%
+\footnotesize\endrealitemize%
+}
+
+\let\realenumerate\enumerate
+\let\endrealenumerate\endenumerate
+\renewenvironment{enumerate}{%
+\footnotesize\realenumerate\setlength{\parskip}{0pt}\setlength{\itemsep}{0pt plus 1pt}}
+{%
+\footnotesize\endrealenumerate%
+}

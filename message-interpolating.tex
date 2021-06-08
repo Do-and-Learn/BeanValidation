@@ -1,0 +1,180 @@
+\chapter[]{生成(Interpolating)\footnote{找不到適合的 Interpolating 中文對應詞，即使英英的解釋也未能貼合此處的意涵。這裡姑且就將其作生成吧。}限制的錯誤訊息}
+
+\textit{訊息生成}(\textit{Message interpolation})是 Jakarta Bean 限制被破壞的錯誤訊息產生的過程。本章節將說明 (1) 定義錯誤訊息、(2) 訊息內容的決定 以及 (3) 自定義錯誤訊息。
+
+\section{預設訊息的生成}
+
+限制被破壞的訊息來自\textit{訊息描述}(\textit{message descriptors})。每種限制透過 \texttt{message} 屬性設定其預設的訊息描述。在宣告限制時，訊息描述可以被覆寫，範例如下:
+
+\begin{lstlisting}
+@Data
+public class Car {
+  @NotNull(`\color{blue}message = "製造商名稱不得為 null"`)
+  private String manufacturer;
+}
+\end{lstlisting}
+
+當限制被破壞時，\textit{驗證引擎}(\textit{validation engine})使用目前設定的 \texttt{Message\-Interpolator} 生成它的描述。透過 \texttt{ConstraintViolation\#getMessage()} 可以取得限制被破壞所生成的描述。
+
+\textit{訊息參數(message parameters)} 與 \textit{訊息表示式(message expressions)} 在訊息生成的過程中會被替換成具體的訊息內容。訊息參數被放在 \texttt{\{\}} 中；訊息表示式被放在 \texttt{\$\{\}}中。
+
+因為 \texttt{\$}, \texttt{\{} 與 \texttt{\}}是訊息描述的保留字，所以要在訊息描述中使用到這些字元需要在前面冠上反斜線 \texttt{\textbackslash}，即 \texttt{\textbackslash\$}, \texttt{\textbackslash\{}, \texttt{\textbackslash\}} 以及 \texttt{\textbackslash\textbackslash} 表示反斜線。
+
+訊息參數的內容將被當作索引(key)至 \textit{ValidationMessages} \footnote{\url{https://github.com/hibernate/hibernate-validator/tree/main/engine/src/main/resources/org/hibernate/validator}} 中查詢並替換成具體的訊息。此過程會遞迴至訊息描述不再包含訊息參數為止。開發員可以將檔案 \textit{ValidationMessages.properties} 新增至 classpath 中，以自訂訊息；亦可透過檔名後綴提供多國語系，例如 \textit{ValidationMessages\_en\_US.properties}。透過 \texttt{Locale\#getDefault()} 可得到當前 JVM 的語系。換句話說，只有將訊息描述成訊息參數才能有多國語系的功能。
+
+訊息表示式的內容為 Jakarta Expression Language，可以提高建構訊息的彈性，例如條件式的決定訊息內容。目前被驗證的屬性將儲存在變數 \texttt{validatedValue} 中。
+
+以下範例:
+
+\begin{lstlisting}[numbers=left, xleftmargin=1.5\parindent]
+@Data
+public class Car {
+  @NotNull
+  private String manufacturer;
+
+  @Size(
+    min = 2,
+    max = 14,
+    message = "車牌 `\color{blue}'\$\{validatedValue\}'` 長度必須介於 `\color{blue}\{min\}` 與 `\color{blue}\{max\}` 長度之間"
+  )
+  private String licensePlate;
+
+  @Min(
+    value = 2,
+    message = "There must be at least `\color{blue}\{value\}` seat`\color{blue}\$\{value > 1 ? 's' : ''\}`"
+  )
+  private int seatCount;
+
+  @DecimalMax(
+    value = "350",
+    message = "最高速度 `\color{blue}\$\{formatter.format('\%1\$.2f', validatedValue)\}` 不能超過 `\color{blue}\{value\}`"
+  )
+  private double topSpeed;
+
+  @DecimalMax(value = "100000", message = "價格不能高於 `\color{blue}\$\{value\}`")
+  private BigDecimal price;
+}
+\end{lstlisting}
+
+第 4 行，被標記 \texttt{@NotNull} 的 \texttt{manufacturer} 限制被破壞將產生錯誤訊息``不得是空值"，它是系統預設的訊息。第 11 行，被標記 \texttt{@Size} 的 licensePlate 限制被破壞將產生帶 \texttt{min} 及 \texttt{max} 參數的訊息，而 \texttt{validatedValue} 為被驗證的車牌。第 15 行，被標記 \texttt{@Min} 的 \texttt{seatCount} 限制被破壞將產生訊息，其結尾判斷數量為複數時加上 `s'~\footnote{判斷複數名詞結尾要加 s，中文翻譯後無法表達此效果，故保留原文。}，判斷式中的 \texttt{value} 變數為其限制標籤欄位值。第 24 行，被標記 \texttt{@DecimalMax} 的 \texttt{topSpeed} 限制被破壞時，將產生錯誤錯誤訊息，其中被驗證的值 \texttt{validatedValue} 被格式化處理。第 26 行，被標記 \texttt{@DecimalMax} 的 \texttt{price} 限制被破壞時，將產生訊息，其 \texttt{value} 變數的數值來至限制標籤中的 \texttt{value} 欄位。值得注意的是，第 15, 21, 25 行 使用 \texttt{\{value\}} 及 \texttt{\$\{value\}} 存取限制標籤的欄位值，這兩種都是有效的。
+
+測試程式碼如下:
+
+\begin{lstlisting}[basicstyle=\linespread{1}\ttfamily\scriptsize]
+import static org.hibernate.validator.testutil.ConstraintViolationAssert.assertThat;
+import static org.hibernate.validator.testutil.ConstraintViolationAssert.violationOf;
+
+Car car = new Car(null, "x", 1, 400.5, BigDecimal.valueOf(100001));
+Set<ConstraintViolation<Car>> violations = validator.validate(car);
+assertThat(violations).containsOnlyViolations(
+  violationOf(NotNull.class).withMessage("不得是空值").withProperty("manufacturer"),
+  violationOf(Min.class).withMessage("There must be at least 2 seats").withProperty("seatCount"),
+  violationOf(DecimalMax.class).withMessage("最高速度 400.50 不能超過 350").withProperty("topSpeed"),
+  violationOf(DecimalMax.class).withMessage("價格不能高於 $100000").withProperty("price"),
+  violationOf(Size.class).withMessage("車牌 'x' 長度必須介於 2 與 14 長度之間").withProperty("licensePlate")
+);
+\end{lstlisting}
+
+\section{自訂生成訊息}
+
+如果預設訊息不符合需求，以下提供數種替換訊息的方式。
+
+\subsection{自定義 \texttt{MessageInterpolator}}
+
+以下程式碼透過自訂的 \texttt{MessageInterpolator} 物件以自訂訊息的生成。
+
+\begin{lstlisting}[numbers=left, basicstyle=\linespread{1}\ttfamily\scriptsize, xleftmargin=1.5\parindent]
+public class CustomMessageInterpolator `\color{blue}implements MessageInterpolator` {
+  private final Map<String, String> message =
+    Map.of(`\color{blue}"\{jakarta.validation.constraints.NotNull.message\}"`, `\color{blue}"請提供資料"`);
+  private MessageInterpolator defaultMessageInterpolator = Validation.byDefaultProvider().configure().getDefaultMessageInterpolator();
+
+  @Override
+  public String interpolate(String s, Context context) {
+    if (message.containsKey(s))
+      return message.get(s);
+    return defaultMessageInterpolator.interpolate(s, context);
+  }
+
+  @Override
+  public String interpolate(String s, Context context, Locale locale) {
+    if (message.containsKey(s))
+      return message.get(s);
+    return defaultMessageInterpolator.interpolate(s, context, locale);
+  }
+}
+\end{lstlisting}
+
+第 3-4 行，將 \texttt{@NotNull} 違反限制的訊息改成 ``請提供資料"。第 7 行，接收到的參數 \texttt{s} 是訊息參數，然後第 8 行判斷其是否屬於自訂訊息，若是則在第 9 行回傳訊息內容。第 10 行，官方建議若沒自訂訊息則回傳預設 \texttt{MessageInterpolator} 的訊息。預設 \texttt{MessageInterpolator} 的取得方式參考第 4 行。
+
+以下是測試程式碼:
+
+\begin{lstlisting}[numbers=left, basicstyle=\linespread{1}\ttfamily\footnotesize, xleftmargin=1.5\parindent]
+private Validator validator;
+
+@BeforeMethod
+public void setup() {
+  ValidatorFactory factory = Validation.byDefaultProvider().configure()
+    .messageInterpolator(`\color{blue}new CustomMessageInterpolator()`)
+    .buildValidatorFactory();
+  validator = factory.getValidator();
+}
+
+@Test
+public void testAllInvalid() {
+  Car car = new Car(null, "");
+  Set<ConstraintViolation<Car>> violations = validator.validate(car);
+  assertThat(violations).containsOnlyViolations(
+    violationOf(NotNull.class).withMessage("請提供資料").withProperty("manufacturer"),
+    violationOf(Size.class).withMessage("大小必須在 2 和 14 之間").withProperty("licensePlate")
+  );
+}
+\end{lstlisting}
+
+第 6 行套用自訂 \texttt{CustomMessageInterpolator}。在測試中，第 16 行，\texttt{@NotNull} 的限制被破壞的訊息被改成 ``請提供資料"。第 17 行，\texttt{@Size} 的限制被破壞的訊息沒有被修改，為預設內容。
+
+\subsection{擴充預設的 \texttt{ResourceBundleMessageInterpolator}}
+
+使用 \texttt{ResourceBundleLocator} 載入自訂的 \textit{properties} 檔案，預設為 \texttt{ResourceBundleMessageInterpolator}。
+
+以下將 \texttt{NotNull} 限制破壞的訊息參數 \textit{jakarta.validation.constraints.NotNull.message} 的內容重新定義成 ``請提供資料"，將其儲存至檔案 \textit{src/main/resources/MyMessages.properties}。
+
+\begin{lstlisting}
+jakarta.validation.constraints.NotNull.message=請提供資料
+\end{lstlisting}
+
+\begin{lstlisting}[numbers=left, basicstyle=\linespread{1}\ttfamily\footnotesize, xleftmargin=1.5\parindent]
+private Validator validator;
+
+@BeforeMethod
+public void setup() {
+  ValidatorFactory factory = Validation.byDefaultProvider().configure()
+    .messageInterpolator(
+      new ResourceBundleMessageInterpolator(`\color{blue}new PlatformResourceBundleLocator("MyMessages")`))
+    .buildValidatorFactory();
+  validator = factory.getValidator();
+}
+
+@Test
+public void testAllInvalid() {
+  Car car = new Car(null, "");
+  Set<ConstraintViolation<Car>> violations = validator.validate(car);
+  assertThat(violations).containsOnlyViolations(
+    violationOf(NotNull.class).withMessage("請提供資料").withProperty("manufacturer"),
+    violationOf(Size.class).withMessage("大小必須在 2 和 14 之間").withProperty("licensePlate")
+  );
+}
+\end{lstlisting}
+
+\subsubsection{多 properties 檔案}
+
+\begin{lstlisting}
+@BeforeMethod
+public void setup() {
+  ValidatorFactory factory = Validation.byDefaultProvider().configure()
+    .messageInterpolator(new ResourceBundleMessageInterpolator(
+      `\color{blue}new AggregateResourceBundleLocator(List.of("MyMessages1", "MyMessages2"))`))
+    .buildValidatorFactory();
+  validator = factory.getValidator();
+}
+\end{lstlisting}

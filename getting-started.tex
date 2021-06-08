@@ -1,0 +1,130 @@
+\chapter{入門}
+
+\section{相依套件}
+
+Spring Boot 專案，將以下相依套件加到 \textit{pom.xml}。實際上，Spring Boot 使用的 Validation 為 \textit{org.{\allowbreak}hibernate.{\allowbreak}validator}~\footnote{\url{https://github.com/spring-projects/spring-boot/blob/main/spring-boot-project/spring-boot-starters/spring-boot-starter-validation/build.gradle}}。
+
+\begin{lstlisting}
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+\end{lstlisting}
+
+或 Maven 專案，將以下相依套件加到 \textit{pom.xml}。
+
+\begin{lstlisting}
+<dependency>
+  <groupId>org.glassfish</groupId>
+  <artifactId>jakarta.el</artifactId>
+  <version>4.0.0</version>
+</dependency>
+<dependency>
+  <groupId>org.hibernate.validator</groupId>
+  <artifactId>hibernate-validator</artifactId>
+  <version>7.0.1.Final</version>
+</dependency>
+\end{lstlisting}
+
+以下是方便測試的套件:
+
+\begin{lstlisting}
+<dependency>
+  <groupId>org.hibernate.validator</groupId>
+  <artifactId>hibernate-validator-test-utils</artifactId>
+  <version>7.0.1.Final</version>
+  <scope>test</scope>
+</dependency>
+\end{lstlisting}
+
+\section {套用限制}
+
+汽車物件為範例：
+
+\begin{lstlisting}
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+
+@Data
+@RequiredArgsConstructor
+public class Car {
+    @NotNull
+    private String manufacturer;
+
+    @NotNull
+    @Size(min = 2, max = 14)
+    private String licensePlate;
+
+    @Min(2)
+    private int seatCount;
+}
+
+\end{lstlisting}
+
+\begin{itemize}
+\item \texttt{manufacturer} 不能為 \textit{null}。
+\item \texttt{licensePlate} 不能為 \textit{null} 並且必須介於 2 至 14 字元長度。
+\item \texttt{seatCount} 至少為 2。
+\end{itemize}
+
+\section{檢驗限制}
+
+使用物件 \texttt{Validator} 驗證物件是否破壞限制，以下是單元測試。
+
+\begin{lstlisting}
+import java.util.Set;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
+
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+
+public class CarTest {
+  private static Validator validator;
+
+  @BeforeClass
+  public static void setUpValidator() {
+    ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+    validator = factory.getValidator();
+  }
+
+  @Test
+  public void manufacturerIsNull() {
+    Car car = new Car( null, "DD-AB-123", 4 );
+
+    Set<ConstraintViolation<Car>> constraintViolations =
+      validator.validate( car );
+
+    assertEquals( 1, constraintViolations.size() );
+    assertEquals( "must not be null",
+      constraintViolations.iterator().next().getMessage() );
+  }
+
+  // 其他欄位的驗證忽略。
+
+  @Test
+  public void carIsValid() {
+    Car car = new Car( "Morris", "DD-AB-123", 2 );
+
+    Set<ConstraintViolation<Car>> constraintViolations =
+      validator.validate( car );
+
+    assertEquals( 0, constraintViolations.size() );
+  }
+}
+\end{lstlisting}
+
+在 \texttt{setUpValidator} 方法，測試類別最開始將透過 \texttt{ValidatorFactory} 生成 \texttt{Validator} 物件。\texttt{Validator} 物件是執行緒安全(thread-safe)且可重複使用，所以可以它可以宣告呈靜態物件，並且在各測試重複使用。
+
+\texttt{validate} 方法回傳 \texttt{ConstraintViolation} 物件，我們可以透過迭代的方式，將取得破壞限制的欄位訊息。若沒有任何欄位破壞限制，方法回傳空集合。
+
+這裡只使用到 \textit{jakarta.validation}~\footnote{在 Jakarta EE 9 版本的時候，javax.* 命名空間被改名成 jakarta.*。Jakarta EE 的前身是 Java EE；而 Java EE (Java EE) 的前身 J2EE。}，它是 Bean Validation API 的一部份，並沒有直接與 Hibernate Validator 有直接耦合的情況，因此可以提高程式碼的可移植性。

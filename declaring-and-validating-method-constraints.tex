@@ -1,0 +1,260 @@
+\chapter{Method 限制的宣告與驗證}
+
+限制 Method 的 pre-condition 與 post-condition。不適用於靜態的 Method。
+
+\section{宣告 Method 的限制}
+
+\subsection{參數的限制}
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public class RentalStation {
+  public RentalStation(`\color{blue}@NotNull` String name) {
+    //...
+  }
+
+  public void rentCar(
+    `\color{blue}@NotNull` Customer customer,
+    `\color{blue}@NotNull` `\color{blue}@Future` Date startDate,
+    `\color{blue}@Min(1)` int durationInDays) {
+    //...
+  }
+}
+\end{lstlisting}
+
+這些標記在參數上的限制，並不會在呼叫的時候自動地驗證。
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public class Car {
+  `\color{blue}@LuggageCountMatchesPassengerCount(piecesOfLuggagePerPassenger = 2)`
+  public void load(List<Person> passengers, List<PieceOfLuggage> luggage) {
+    //...
+  }
+}
+\end{lstlisting}
+
+這是跨參數限制的範例。
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public class Garage {
+  @ELAssert(expression = "...", `\color{blue}validationAppliesTo = ConstraintTarget.PARAMETERS`)
+    public Car buildCar(List<Part> parts) {
+      //...
+      return null;
+    }
+
+  @ELAssert(expression = "...", `\color{blue}validationAppliesTo = ConstraintTarget.RETURN\_VALUE`)
+  public Car paintCar(int color) {
+    //...
+    return null;
+  }
+}
+\end{lstlisting}
+
+\texttt{validationAppliesTo} 指定限制要套用在參數上還是回傳值上。以下狀況，限制將會自動參考要限制的部分。回傳型態為 \texttt{void}，限制將套用至參數；無參數時，限制相套用至回傳值。
+
+\subsection{回傳值的限制}
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public class RentalStation {
+  `\color{blue}@ValidRentalStation`
+  public RentalStation() {
+    //...
+  }
+
+  `\color{blue}@NotNull`
+  `\color{blue}@Size(min = 1)`
+  public List<`\color{blue}@NotNull Customer>` getCustomers() {
+    //...
+    return null;
+  }
+}
+\end{lstlisting}
+
+新建的 \texttt{RentalStation} 物件必須滿足 \texttt{ValidRentalStation} 限制。\texttt{getCustomers()} 的回傳值不能為 \textit{null}並至少含一個元素，且元素不能為 \textit{null}。
+
+\subsection{逐級驗證(Cascaded validation)}
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public class Garage {
+
+  @NotNull
+  private String name;
+
+  `\color{blue}@Valid`
+  public Garage(String name) {
+    this.name = name;
+  }
+
+  public boolean checkCar(`\color{blue}@Valid` @NotNull Car car) {
+    //...
+    return false;
+  }
+}
+\end{lstlisting}
+
+建構式標記 \texttt{@Valid} 表對回傳的物件應進行逐級驗證。以及 \texttt{checkCar} 的參數 \texttt{car} 進行逐級驗證。
+
+\subsection{方法限制的繼承}
+
+\begin{itemize}
+\item 子類別可能無法加強前置條件的限制。
+\item 子類別無法減弱後置條件的限制。
+\end{itemize}
+
+\begin{lstlisting}
+public interface Vehicle {
+    void drive(@Max(75) int speedInMph);
+}
+
+public class Car implements Vehicle {
+    @Override
+    public void drive(@Max(55) int speedInMph) {
+        //...
+    }
+}
+\end{lstlisting}
+
+{\color{red}如果介面的方法沒有宣告限制的話，其衍生類別也無法標記限制?}
+
+\begin{lstlisting}
+public interface Vehicle {
+    void drive(@Max(75) int speedInMph);
+}
+
+public interface Car {
+    void drive(int speedInMph);
+}
+
+public class RacingCar implements Car, Vehicle {
+    @Override
+    public void drive(int speedInMph) {
+        //...
+    }
+}
+\end{lstlisting}
+
+{\color{red}\texttt{RacingCar\#drive} 覆載 \texttt{Vehicle\#drive} 與 \texttt{Car\#drive}，所以 \texttt{RacingCar\#drive} 的限制就失效了?}
+
+\begin{lstlisting}[escapeinside={`}{`}]
+public interface Vehicle {
+    `\color{blue}@NotNull`
+    List<Person> getPassengers();
+}
+
+public class Car implements Vehicle {
+    @Override
+    `\color{blue}@Size(min = 1)`
+    public List<Person> getPassengers() {
+        //...
+        return null;
+    }
+}
+\end{lstlisting}
+
+\texttt{Car\#getPassengers} 將套用 \texttt{@NotNull} 與 \texttt{@Size} 兩個限制。
+
+\section{驗證 Method 的限制}
+
+這裡驗證需要仰賴 AOP 或者 Proxy，因為極度不 type-safe。對於程式的維護性不友善，個人不是很建議以下的作法。
+
+\begin{lstlisting}
+public class Car {
+
+  public Car(@NotNull String manufacturer) {}
+
+  public void drive(@Max(75) int speedInMph) {}
+
+  @Size(min = 1)
+  public List<Object> getPassengers() {
+    return Collections.emptyList();
+  }
+}
+\end{lstlisting}
+
+驗證 Method 的限制需透過 \texttt{ExecutableValidator} 物件。以下是測試程式碼。
+
+\begin{lstlisting}[basicstyle=\linespread{1}\ttfamily\footnotesize]
+private ExecutableValidator executableValidator;
+
+@BeforeMethod
+public void setup() {
+  ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+  executableValidator = factory.getValidator().forExecutables();
+}
+
+@Test
+public void testInvalidConstructor() throws NoSuchMethodException {
+  Set<ConstraintViolation<Car>> violations = executableValidator
+    .validateConstructorParameters(Car.class.getConstructor(String.class), new Object[]{null});
+  assertThat(violations).containsOnlyViolations(
+    violationOf(NotNull.class).withPropertyPath(pathWith().constructor(Car.class).parameter("arg0", 0))
+  );
+}
+
+@Test
+public void testValidConstructor() throws NoSuchMethodException {
+  Set<ConstraintViolation<Car>> violations = executableValidator
+    .validateConstructorParameters(Car.class.getConstructor(String.class), new Object[]{"Toyota"});
+  assertNoViolations(violations);
+}
+
+@Test
+public void invalidParameter() throws NoSuchMethodException {
+  Car car = new Car("Toyota");
+
+  Set<ConstraintViolation<Car>> violations = executableValidator.validateParameters(
+    car, Car.class.getDeclaredMethod("drive", int.class), new Object[]{100}
+  );
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(Max.class).withPropertyPath(pathWith().method("drive").parameter("arg0", 0))
+  );
+}
+
+@Test
+public void validParameter() throws NoSuchMethodException {
+  Car car = new Car("Toyota");
+
+  Set<ConstraintViolation<Car>> violations = executableValidator.validateParameters(
+    car, Car.class.getDeclaredMethod("drive", int.class), new Object[]{75}
+  );
+
+  assertNoViolations(violations);
+}
+
+@Test
+public void invalidReturnValue() throws NoSuchMethodException {
+  Car car = new Car("Toyota");
+  Set<ConstraintViolation<Car>> violations = executableValidator.validateReturnValue(
+    car, Car.class.getDeclaredMethod("getPassengers"), car.getPassengers()
+  );
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(Size.class).withPropertyPath(pathWith().method("getPassengers").returnValue())
+  );
+}
+
+@Test
+public void validReturnValue() throws NoSuchMethodException {
+  Car car = new Car("Toyota");
+  Set<ConstraintViolation<Car>> violations = executableValidator.validateReturnValue(
+    car, Car.class.getDeclaredMethod("getPassengers"), Collections.singleton(new Object())
+  );
+
+  assertNoViolations(violations);
+}
+\end{lstlisting}
+
+\section{內建 Method 的限制}
+
+\begin{lstlisting}
+public class Car {
+
+  @ParameterScriptAssert(
+    lang = "javascript",
+    script = "luggage.size() <= passengers.size() * 2")
+  public void load(List<Person> passengers, List<PieceOfLuggage> luggage) {
+    //...
+  }
+}
+\end{lstlisting}

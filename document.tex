@@ -1,0 +1,26 @@
+\documentclass{book}
+
+\usepackage{common}
+
+\title{Bean Validation}
+\author{李家政(Teddy Lee)}
+\date{{\small\zhtoday}}
+
+\begin{document}
+
+\maketitle
+
+內容為 Hibernate Validation 官方教學文件~\cite{hibernate-validator-doc}的學習記錄，完整版仍需要參考原文。
+
+\include{getting-started.tex}
+\include{declaring-and-validating-bean-constraints.tex}
+\include{declaring-and-validating-method-constraints.tex}
+\include{message-interpolating.tex}
+\include{grouping-constraints.tex}
+
+\begin{thebibliography}{9}
+\bibitem{hibernate-validator-doc} \href{https://hibernate.org/validator/documentation/}{Hibernate Validator 文件}
+\bibitem{bean-validation-specification} \href{https://beanvalidation.org/2.0/spec/}{Jakarta Bean Validation specification}
+\end{thebibliography}
+
+\end{document}

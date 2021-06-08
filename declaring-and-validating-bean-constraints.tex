@@ -1,0 +1,352 @@
+\chapter{宣告與驗證 Bean 的限制}
+
+\section{宣告 Bean 的限制}
+
+Jakarta Bean Validation 使用 Java 標記定義限制。限制分成四類:
+
+\begin{enumerate}
+\item \textit{欄位層級的限制}(\textit{field-level constraints}): 將限制標籤標記在欄位宣告上。
+\item \textit{屬性層級的限制}(\textit{property-level constraints}): 將限制標記在存取方法上(Getter)。
+\item \textit{容器元素限制}(\textit{container element constraints}): 將限制標記在 Generic Type 上。
+\item \textit{類別限制}(\textit{class constraints})
+\end{enumerate}
+
+\subsection{欄位層級的限制}
+
+\begin{lstlisting}
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.AssertTrue;
+
+@Data
+@RequiredArgsConstructor
+public class Car {
+  @NotNull
+  private String manufacturer;
+
+  @AssertTrue
+  private boolean isRegistered;
+}
+\end{lstlisting}
+
+\textit{驗證引擎}(\textit{Validation Engine}) 直接存取物件欄位的值，進行驗證，不會透過 Getter 方法存取數值。即使欄位的存取類型被設定成 \textit{private} 也無妨~\footnote{沒意外應該是透過 relection 存取數值?}。不過，\textbf{不支援靜態欄位的限制}。
+
+接下來的屬性層級的限制，它將限制標籤標記在 Getter 上。不過，像本範例使用 \texttt{@Data} 幫助生成 Getter 的情況下，則無法使用屬性層級的限制，只能使用欄位層級的限制。
+
+\subsection{屬性階層的限制}
+
+\begin{lstlisting}
+import lombok.Setter;
+import lombok.RequiredArgsConstructor;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.AssertTrue;
+
+@RequiredArgsConstructor
+@Setter
+public class Car {
+
+  private String manufacturer;
+
+  private boolean isRegistered;
+
+  @NotNull
+  public String getManufacturer() {
+    return manufacturer;
+  }
+
+  @AssertTrue
+  public boolean isRegistered() {
+    return isRegistered;
+  }
+}
+\end{lstlisting}
+
+驗證引擎(Validation Engine) 將透過 Getter 存取物件的數值進行驗證。
+
+建議一個欄位的 欄位層級的限制 與 屬性階層的限制 擇一使用，否則欄位將被驗證兩次。
+
+\subsection{容器元素限制}
+
+標記在通用型態(Generic Type)上的限制。
+
+\subsubsection{\texttt{Iterable}}
+
+\begin{lstlisting}
+import java.util.HashSet;
+import java.util.Set;
+
+public class Car {
+  private Set<@ValidPart String> parts = new HashSet<>();
+
+  public void addPart(String part) {
+    parts.add( part );
+  }
+}
+\end{lstlisting}
+
+\texttt{@ValidPart} 限制 \texttt{parts} 集合中的元素。在 Hibernate Validator 6 以前，需要寫成 \texttt{@ValidPart private Set<String> parts}，雖然此語法仍然支援，但不建議使用。
+
+其他宣告 Generic Type 的限制同此範例標記在 Type 之前，其他容器如\texttt{List}、\texttt{Map}、\texttt{java.util.Optional} 可以參考官方教學文件~\cite{hibernate-validator-doc}。
+
+\subsubsection{自訂容器的型態}
+
+\begin{lstlisting}
+public class Car {
+  private GearBox<@MinTorque(100) Gear> gearBox;
+}
+\end{lstlisting}
+
+\texttt{@MinTorque(100)} 限制 \texttt{gearBox} 物件的齒輪(Gear)最小扭力必須為 100。實作參考第~\ref{sec:code}小節程式碼。
+
+\subsubsection{巢狀容易的限制}
+
+\begin{lstlisting}
+public class Car {
+  private Map<@NotNull Part, List<@NotNull Manufacturer>> partManufacturers =
+    new HashMap<>();
+}
+\end{lstlisting}
+
+\texttt{@NotNull} 限制了 \texttt{partManufacturers} 物件的 索引(key)值 以及對應值的清單中的元素。
+
+\subsection{類別限制}
+
+\begin{lstlisting}
+@ValidPassengerCount
+public class Car {
+  private int seatCount;
+  private List<Person> passengers;
+}
+\end{lstlisting}
+
+\texttt{@ValidPassengerCount} 限制 \texttt{Car} 物件的乘客數必須是有效的。類別限制不是用於檢驗單一欄位，而是用於檢驗一組相關的欄位。以此例來說，座位數以及乘客數才能夠決定乘客數是否有效。
+
+\subsection{逐級驗證(Cascaded Validation)}
+
+\begin{lstlisting}
+@Data
+public class Car {
+  @NotNull
+  @Valid
+  private Person driver;
+}
+\end{lstlisting}
+
+\texttt{@Valid} 將使得物件進行\textit{逐級驗證}(\textit{Cascaded Validation})，他將首先驗證 \texttt{driver} 不能是 \textit{null}，並且接著驗證 \texttt{Person} 物件，驗證 \texttt{name} 不能是 \textit{null}。若沒有標記 \texttt{@Valid}，那麼驗證程序就會停止在確認 \texttt{driver} 不是 \textit{null}。
+
+\begin{lstlisting}
+@Data
+public class Person {
+  @NotNull
+  private String name;
+}
+\end{lstlisting}
+
+\section{驗證 Bean 的限制}
+
+\texttt{Validator} 物件用於驗證限制，\texttt{ValidatorFactory} 物件用於產生 \texttt{Validator} 物件。以下程式碼用於產生預設的 \texttt{Validator}。
+
+\begin{lstlisting}
+ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+Validator validator = factory.getValidator();
+\end{lstlisting}
+
+\texttt{Validator} 提供三個驗證的方法:
+
+\begin{enumerate}
+\item \texttt{validate}
+\item \texttt{validateProperty}
+\item \texttt{validateValue}
+\end{enumerate}
+
+這三個方法皆回傳 \texttt{Set<ConstraintViolation>}。若沒有破壞任何限制，則回傳空集合。反之，每一筆 \texttt{ConstraintViolation} 都代表一筆破壞的限制。
+
+\begin{lstlisting}
+Car car = new Car( null, true );
+
+Set<ConstraintViolation<Car>> constraintViolations = validator.validate( car );
+
+assertEquals( 1, constraintViolations.size() );
+assertEquals( "must not be null",
+              constraintViolations.iterator().next().getMessage() );
+\end{lstlisting}
+
+檢驗物件 \texttt{car} 是否有違反任何限制。
+
+\begin{lstlisting}
+Car car = new Car( null, true );
+
+Set<ConstraintViolation<Car>> constraintViolations = validator.validateProperty(
+  car, "manufacturer"
+);
+
+assertEquals( 1, constraintViolations.size() );
+assertEquals( "must not be null",
+              constraintViolations.iterator().next().getMessage() );
+\end{lstlisting}
+
+檢驗物件 \texttt{car} 的屬性 \texttt{manufacturer} 是否違反限制。
+
+\begin{lstlisting}
+Set<ConstraintViolation<Car>> constraintViolations = validator.validateValue(
+  Car.class, "manufacturer", null
+);
+
+assertEquals( 1, constraintViolations.size() );
+assertEquals( "must not be null",
+              constraintViolations.iterator().next().getMessage() );
+\end{lstlisting}
+
+當物件 \texttt{Car} 的屬性 \texttt{manufacturer} 為 \textit{null} 時，是否違反限制。
+\texttt{@Valid} 標記不適用在 \texttt{validateProperty} 與 \texttt{validateValue}。
+
+\subsection{\texttt{ConstraintViolation}}
+
+方法：
+
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{方法} & \textbf{說明} & \textbf{範例} \\ \hline
+\texttt{getMessage} & 違反限制的錯誤訊息。 & must not be null \\ \hline
+\texttt{getMessageTemplate} & 違反限制的錯誤訊息的索引。 & {…​ NotNull.message} \\ \hline
+\texttt{getRootBean} & 導致錯誤的根源 & car \\ \hline
+\texttt{getRootBeanClass} & 導致錯誤的根源類別 & Car.class \\ \hline
+\texttt{getLeafBean} & 導致錯誤的物件 & car\\ \hline
+\texttt{getPropertyPath} & 從根源類別到破壞限制欄位的路徑 & manufacturer \\ \hline
+\texttt{getInvalidValue} & 破壞限制的數值 & null \\ \hline
+\texttt{getConstraintDescriptor} & 限制的描述 & \texttt{@NotNull} 的描述 \\ \hline
+\end{tabular}
+
+\section{內建的限制標記}
+
+\subsection{Jakarta Bean Validation 限制}
+
+這些限制都是欄位/屬性階級的限制，而非類別的限制。
+
+\vspace{10pt}
+
+\noindent\textbf{任何型態的限制}
+
+\begin{itemize}
+\item \texttt{@NotNull}: 數值不能為 \textit{null}。 (Hibernate metadata)
+\item \texttt{@Null}: 數值必須為 \textit{null}。
+\end{itemize}
+
+\noindent\textbf{布林型態的限制}
+
+\begin{itemize}
+\item \texttt{@AssertFalse}: 數值必須為 \textit{false}。
+\item \texttt{@AssertTrue}: 數值必須為 \textit{true}。
+\end{itemize}
+
+\noindent\textbf{數值的限制}\vspace{10pt}
+
+應用在 BigDecimal, BigInteger, byte, short, int, long (Hibernate Validator 額外支援: CharSequence, Number, javax.money.MonetaryAmount) 型態的限制。
+
+\begin{itemize}
+\item \texttt{@Max(value=)}: 限制數值的最大值。(Hibernate metadata)
+\item \texttt{@Min(value=)}: 限制數值的最小值。(Hibernate metadata)
+\item \texttt{@Positive}: 限制數值必須為正數。(0 視為無效值)
+\item \texttt{@PositiveOrZero}: 限制數值必須為正數。
+\item \texttt{@Negative}: 限制數值必須為負數。(0 視為無效值)
+\item \texttt{@NegativeOrZero}: 限制數值必須為負數。
+\end{itemize}
+
+應用在 BigDecimal, BigInteger, \textbf{CharSequence}, byte, short, int, long (Hibernate Validator 額外支援: Number, javax.money.MonetaryAmount) 型態的限制。
+
+\begin{itemize}
+\item \texttt{@DecimalMax(value=, inclusive=)}: 限制數值的最大值。
+\item \texttt{@DecimalMin(value=, inclusive=)}: 限制數值的最小值。
+\item \texttt{@Digits(integer=, fraction=)}: 限制數值的整數與小數位數。(Hibernate metadata)
+\end{itemize}
+
+\noindent\textbf{日期時間的限制}\vspace{10pt}
+
+應用在 java.util.Date, java.util.Calendar, java.time.Instant, java.time.LocalDate, java.time.LocalDateTime, java.time.LocalTime, java.time.MonthDay, java.time.OffsetDateTime, java.time.OffsetTime, java.time.Year, java.{\allowbreak}time.YearMonth, java.time.ZonedDateTime, java.time.chrono.HijrahDate, java.time.chrono.JapaneseDate,{\linebreak} java.time.chrono.MinguoDate, java.time.chrono.ThaiBuddhistDate (Hibernate Validator 額外支援: ReadablePartial, ReadableInstant) 型態的限制。
+
+\begin{itemize}
+\item \texttt{@Future}: 限制時間必須是未來的時間。
+\item \texttt{@FutureOrPresent}: 限制時間必須是現在或未來的時間。
+\item \texttt{@Past}: 限制時間必須是過去的時間。
+\item \texttt{@PastOrPresent}: 限制時間必須是現在或過去的時間。
+\end{itemize}
+
+\noindent\textbf{字串的限制}
+
+\vspace{10pt}
+
+應用在 CharSequence 型態的限制。
+
+\begin{itemize}
+\item \texttt{@Email}: 限制數值必須為有效的郵件地址。
+\item \texttt{@NotBlank}: 限制數值內容不為 \textit{null} 以及去頭尾空白的長度為 0。
+\item \texttt{@Pattern(regex=, flags=)}: 限制數值必須符合正規表示式。
+\end{itemize}
+
+應用在 CharSequence, Collection, Map 與 陣列 型態的限制。
+
+\begin{itemize}
+\item \texttt{@NotEmpty}: 數值內容為空。
+\item \texttt{@Size(min=, max=)}: 數值的容量必須介於最大與最小值之間(含)。(Hibernate metadata)
+\end{itemize}
+
+\subsection{額外的限制}
+
+\noindent\textbf{任何型態的限制}\vspace{10pt}
+
+\begin{itemize}
+\item \texttt{@ScriptAssert(lang=, script=, alias=, reportOn=)}
+\end{itemize}
+
+\noindent\textbf{字串的限制}\vspace{10pt}
+
+應用在 CharSequence 型態的限制。
+
+\begin{itemize}
+\item \texttt{@CreditCardNumber(ignoreNonDigitCharacters=)}: 用以檢查使用者是否可能誤植卡號，但不能保證卡號是有效的。
+\item \texttt{@EAN}: 檢查字串是否為有效的 EAN barcode。
+\item \texttt{@ISBN}: 檢查字串是否為有效的 ISBN。
+\item \texttt{@Length(min=, max=)}~\footnote{應使用標準的限制標籤: \texttt{@Size}}: 數值必須介於最大與最小值之間(含)。(Hibernate metadata)
+\item \texttt{@CodePointLength(min=, max=, normalizationStrategy=)}~\footnote{\url{https://hibernate.atlassian.net/browse/HV-1496}}
+\item \texttt{@LuhnCheck(startIndex= , endIndex=, checkDigitIndex=, ignoreNonDigitCharacters=)}: 限制字串須符合 Luhn 檢查碼。字串被設計成 Luhn 算法，主要是為了防止使用者輸入資料時，誤植出錯。
+\item \texttt{@Mod10Check(multiplier=, weight=, startIndex=, endIndex=, checkDigitIndex=, ignoreNonDigitCharacters=)}: 限制字串須符合 Mod 10 檢查碼。
+\item \texttt{@Mod11Check(threshold=, startIndex=, endIndex=, checkDigitIndex=, ignoreNonDigitCharacters=, treatCheck10As=, treatCheck11As=)}: 限制字串須符合 Mod 11 檢查碼。
+\item \texttt{@Normalized(form=)}
+\item \texttt{@URL(protocol=, host=, port=, regexp=, flags=)}
+\end{itemize}
+
+\noindent\textbf{數值的限制}\vspace{10pt}
+
+應用在 BigDecimal, BigInteger, CharSequence, byte, short, int, long 型態的限制。
+
+\begin{itemize}
+\item \texttt{@Range(min=, max=)}
+\end{itemize}
+
+\noindent\textbf{期間的限制}\vspace{10pt}
+
+應用在 java.time.Duration 型態的限制。
+
+\begin{itemize}
+\item \texttt{@DurationMax(days=, hours=, minutes=, seconds=, millis=, nanos=, inclusive=)}: 限制最大期間。
+\item \texttt{@DurationMin(days=, hours=, minutes=, seconds=, millis=, nanos=, inclusive=)}: 限制最小期間。
+\end{itemize}
+
+\noindent\textbf{集合的限制}\vspace{10pt}
+
+應用在 Collection 型態的限制。
+
+\begin{itemize}
+\item \texttt{@UniqueElements}
+\end{itemize}
+
+\noindent\textbf{其他的限制}\vspace{10pt}
+
+應用在 javax.money.MonetaryAmount 型態的限制。
+
+\begin{itemize}
+\item \texttt{@Currency(value=)}: 限制必須是有效的幣值單位。
+\end{itemize}

@@ -1,0 +1,195 @@
+\chapter{限制的分群}
+
+\section{定義群組}
+
+\begin{lstlisting}
+public interface DriverChecks {}
+
+@Data
+public class Driver {
+  @NotNull
+  private String name;
+
+  @Min(value = 18, groups = DriverChecks.class)
+  private int age;
+
+  @AssertTrue(groups = DriverChecks.class)
+  private boolean hasDrivingLicense;
+}
+\end{lstlisting}
+
+沒有給予 \textit{group} 參數的限制，則屬於 group \texttt{jakarta.validation.groups.Default}。
+
+程式碼中 \texttt{Default} group 的有 \texttt{Driver.name}；\texttt{DriverChecks} group 的有 \texttt{Driver.age}、\texttt{Driver.hasDriving{\break}License}。
+
+測試程式碼如下:
+
+\begin{lstlisting}
+import static org.hibernate.validator.testutil.ConstraintViolationAssert.assertThat;
+import static org.hibernate.validator.testutil.ConstraintViolationAssert.violationOf;
+
+private Validator validator;
+private Driver driver;
+
+@BeforeClass
+public void setUp() {
+  validator = Validation.buildDefaultValidatorFactory().getValidator();
+  driver = new Driver();
+  driver.setAge(10);
+  driver.setHasDrivingLicense(false);
+}
+
+@Test
+public void defaultValidate() {
+  Set<ConstraintViolation<Driver>> violations = validator.validate(driver);
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(NotNull.class)
+  );
+}
+
+@Test
+public void groupValidate() {
+  Set<ConstraintViolation<Driver>> violations = validator.validate(
+    driver, DriverChecks.class);
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(Min.class),
+    violationOf(AssertTrue.class)
+  );
+}
+\end{lstlisting}
+
+\section{群組的繼承}
+
+將前一小節之 \texttt{DriverChecks} 繼承預設限制群組。驗證指定的群組，將連同祖先類別的群組一併驗證。
+
+\begin{lstlisting}
+import jakarta.validation.groups.Default;
+
+public interface DriverChecks `\color{cyan}extends Default` {}
+\end{lstlisting}
+
+測試程式碼調整如下:
+
+\begin{lstlisting}[numbers=left, xleftmargin=1.5\parindent]
+@Test
+public void defaultValidate() {
+  Set<ConstraintViolation<Driver>> violations = validator.validate(driver);
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(NotNull.class)
+  );
+}
+
+@Test
+public void groupValidate() {
+  Set<ConstraintViolation<Driver>> violations =
+    validator.validate(driver, DriverChecks.class);
+
+  assertThat(violations).containsOnlyViolations(
+    `\color{cyan}violationOf(NotNull.class)`,
+    violationOf(Min.class),
+    violationOf(AssertTrue.class)
+  );
+}
+\end{lstlisting}
+
+\texttt{DriverChecks} 也是 \texttt{Default}，因此第 13 行驗證結果會包含 \texttt{Default} group 的驗證結果。
+
+\section{群組順序}
+
+\begin{lstlisting}
+`\color{cyan}@GroupSequence({ Default.class, CarChecks.class, DriverChecks.class })`
+public interface OrderedChecks {}
+
+validator.validate( car, OrderedChecks.class )
+\end{lstlisting}
+
+依照 \texttt{GroupSequence} 中定義的限制順序，依序驗證限制是否被破壞。此順序不得包含循環相依，否則將引起例外 \texttt{GroupDefinitionException}。
+
+\section{重新定義 \texttt{Default}}
+
+\subsection{\texttt{@GroupSequence}}
+
+\begin{lstlisting}
+@Data
+`\color{cyan}@GroupSequence(\{DriverChecks.class, \underline{Driver.class}\})`
+public class Driver {
+  @NotNull
+  private String name;
+
+  @Min(value = 18, groups = DriverChecks.class)
+  private int age;
+
+  @AssertTrue(groups = DriverChecks.class)
+  private boolean hasDrivingLicense;
+}
+\end{lstlisting}
+
+\texttt{@GroupSequence} 中必須包含自身類別。
+
+\begin{lstlisting}
+@Test
+public void defaultValidate() {
+  Set<ConstraintViolation<Driver>> violations = validator.validate(driver);
+
+  assertThat(violations).containsOnlyViolations(
+    violationOf(Min.class),
+    violationOf(AssertTrue.class)
+  );
+}
+\end{lstlisting}
+
+因此預設的驗證就被重新定義成檢查群組 \texttt{DriverChecks} 的限制是否被破壞。而預設的群組 \texttt{@NotNull} 的限制是否被破壞則無檢查。
+
+\subsection{\texttt{@GroupSequenceProvider}}
+
+\begin{lstlisting}
+import org.hibernate.validator.spi.group.DefaultGroupSequenceProvider;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class DriverGroupSequenceProvider implements DefaultGroupSequenceProvider<Driver> {
+  @Override
+  public List<Class<?>> getValidationGroups(Driver driver) {
+    List<Class<?>> defaultGroupSequence = new ArrayList<>();
+    defaultGroupSequence.add(DriverChecks.class);
+    defaultGroupSequence.add(Driver.class);
+    return defaultGroupSequence;
+  }
+}
+
+\end{lstlisting}
+
+可以根據 \texttt{driver} 的狀態決定群組順序。
+
+\begin{lstlisting}
+@Data
+`\color{cyan}@GroupSequenceProvider(DriverGroupSequenceProvider.class)`
+public class Driver {
+  @NotNull
+  private String name;
+
+  @Min(value = 18, groups = DriverChecks.class)
+  private int age;
+
+  @AssertTrue(groups = DriverChecks.class)
+  private boolean hasDrivingLicense;
+}
+\end{lstlisting}
+
+此等價於前一小節的範例。
+
+\section{群組轉換}
+
+\begin{lstlisting}
+public class Car {
+  @Valid
+  `\color{cyan}@ConvertGroup(from = Default.class, to = DriverChecks.class)`
+  private Driver driver;
+}
+\end{lstlisting}
+
+\texttt{@ConvertGroup} 必須與 \texttt{@Valid} 一同使用。
